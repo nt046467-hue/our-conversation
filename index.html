@@ -1199,6 +1199,12 @@
           <div>
             <div class="partner-name" id="partnerName">Karu</div>
             <div class="partner-status">online ✨</div>
+            <div
+              id="connectionStatus"
+              style="font-size: 0.72rem; color: #c09ab0"
+            >
+              connecting...
+            </div>
           </div>
         </div>
         <div class="header-heart">💕</div>
@@ -1361,6 +1367,13 @@
         }
       }
 
+      function setConnectionStatus(text, color) {
+        const el = document.getElementById("connectionStatus");
+        if (!el) return;
+        el.textContent = text;
+        if (color) el.style.color = color;
+      }
+
       function maybeSendNotification(text) {
         if (
           "Notification" in window &&
@@ -1421,19 +1434,29 @@
                 window.db = firebase.database();
                 window.messagesRef = db.ref("lovechat_messages");
                 attachMessagesListener();
+                setConnectionStatus("Firebase Realtime connected", "#6af");
               } catch (e) {
                 console.warn("Firebase init failed, using local storage", e);
+                setConnectionStatus(
+                  "Firebase init failed, local fallback",
+                  "#f66",
+                );
                 initLocalMessagesFallback();
               }
             };
             s2.onerror = () => {
               console.warn("Firebase DB script failed, using local storage");
+              setConnectionStatus("Firebase DB failed, local fallback", "#f66");
               initLocalMessagesFallback();
             };
             document.head.appendChild(s2);
           };
           s1.onerror = () => {
             console.warn("Firebase app script failed, using local storage");
+            setConnectionStatus(
+              "Firebase scripts not loaded, local fallback",
+              "#f66",
+            );
             initLocalMessagesFallback();
           };
           document.head.appendChild(s1);
@@ -1476,7 +1499,10 @@
 
         loadFirebaseScripts();
         setTimeout(() => {
-          if (!window.messagesRef) initLocalMessagesFallback();
+          if (!window.messagesRef) {
+            setConnectionStatus("Realtime unavailable, local fallback", "#f66");
+            initLocalMessagesFallback();
+          }
         }, 3000);
       })();
 
