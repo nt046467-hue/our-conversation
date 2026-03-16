@@ -1386,7 +1386,11 @@
         messagingSenderId: "561504998058",
         appId: "1:561504998058:web:6f1819edd37adacdeaf6d3",
         measurementId: "G-68DNQK2R2P",
-      };
+      }; 
+
+      // TODO: replace with your own VAPID key from Firebase Cloud Messaging settings.
+      const FCM_VAPID_KEY =
+        "YOUR_WEB_PUSH_CERTIFICATE_KEY_HERE"; // Example: "BKKu..."
 
       function saveFcmToken(token) {
         if (!window.db || !currentUser || !currentUser.key || !token) return;
@@ -1410,10 +1414,18 @@
             .then((reg) => {
               messaging.useServiceWorker(reg);
               if (Notification.permission === "granted") {
+                const tokenOptions = {};
+                if (FCM_VAPID_KEY && !FCM_VAPID_KEY.includes("YOUR_")) {
+                  tokenOptions.vapidKey = FCM_VAPID_KEY;
+                }
                 messaging
-                  .getToken({ vapidKey: undefined })
+                  .getToken(tokenOptions)
                   .then((token) => {
                     if (token) saveFcmToken(token);
+                    else
+                      console.warn(
+                        "FCM getToken returned empty token: verify VAPID key and site HTTPS",
+                      );
                   })
                   .catch((e) => console.warn("FCM token get failed", e));
               }
@@ -1610,7 +1622,10 @@
       function maybeSendNotification(msgOrText, force = false) {
         if (!partnerUser || !partnerUser.name) return;
 
-        if (!("Notification" in window)) return;
+        if (!("Notification" in window)) {
+          showToast("New message from " + partnerUser.name);
+          return;
+        }
 
         if (Notification.permission === "granted") {
           const body = getNotificationText(msgOrText);
@@ -1620,10 +1635,19 @@
           return;
         }
 
+        // If denied, fallback to in-app toast and don’t keep asking.
+        if (Notification.permission === "denied") {
+          showToast("New message from " + partnerUser.name);
+          return;
+        }
+
         if (Notification.permission === "default") {
           Notification.requestPermission().then((permission) => {
-            if (permission === "granted" && !force) {
-              maybeSendNotification(msgOrText, true);
+            if (permission === "granted") {
+              initFirebaseMessaging();
+              maybeSendNotification(msgOrText, false);
+            } else {
+              showToast("New message from " + partnerUser.name);
             }
           });
         }
@@ -1747,16 +1771,34 @@
                 data.id ||
                 snap.key ||
                 `${data.ts || Date.now()}_${Math.random().toString(36).slice(2)}`;
-              if (deletedMessageIds.has(dataId)) {
+              const clientId = data.clientId || dataId;
+
+              if (deletedMessageIds.has(dataId) || deletedMessageIds.has(clientId)) {
                 // Skip messages that have been deleted already (soft delete list)
                 return;
               }
-              if (pendingMessageIds.has(dataId)) {
+
+              if (
+                pendingMessageIds.has(dataId) ||
+                pendingMessageIds.has(clientId)
+              ) {
                 pendingMessageIds.delete(dataId);
+                pendingMessageIds.delete(clientId);
+
+                // Keep local message in sync with remote message ID if needed.
+                if (clientId && dataId && clientId !== dataId) {
+                  messages = messages.map((m) =>
+                    m.id === clientId ? { ...m, id: dataId } : m,
+                  );
+                }
                 return;
               }
+
               data.id = dataId;
-              if (messages.some((m) => m.id === data.id)) {
+              if (
+                messages.some((m) => m.id === data.id) ||
+                (data.clientId && messages.some((m) => m.id === data.clientId))
+              ) {
                 return;
               }
               messages.push(data);
@@ -1859,6 +1901,14 @@
         const partnerAvatarEl = document.getElementById("partnerAvatar");
         const typingAvatarEl = document.getElementById("typingAvatar");
         const myAvatarEl = document.getElementById("myAvatar");
+
+        // Use existing synced profile metadata when available
+        if (profilesByKey[currentUser.key]) {
+          currentUser = { ...currentUser, ...profilesByKey[currentUser.key] };
+        }
+        if (profilesByKey[partnerUser.key]) {
+          partnerUser = { ...partnerUser, ...profilesByKey[partnerUser.key] };
+        }
 
         if (partnerNameEl) partnerNameEl.textContent = partnerUser.name;
         if (partnerAvatarEl)
@@ -2152,6 +2202,11 @@
             "lovechat_photo_" + currentUser.key,
             myCustomPhoto,
           );
+
+          // Sync across devices via profile storage too.
+          currentUser.avatar = myCustomPhoto;
+          saveCurrentProfile();
+
           setAvatarImg("myAvatar", myCustomPhoto);
           showToast("Photo updated! 📸");
         };
@@ -2201,7 +2256,12 @@
 
       function pushMessage(msg) {
         msg.ts = msg.ts || Date.now();
-        msg.id = msg.id || `${msg.ts}_${Math.random().toString(36).slice(2)}`;
+        const localId = msg.id || `${msg.ts}_${Math.random().toString(36).slice(2)}`;
+        msg.id = localId;
+        msg.clientId = localId;
+
+        // Keep an optimistic local list to prevent duplicates coming from remote.
+        pendingMessageIds.add(localId);
 
         try {
           if (
@@ -2210,16 +2270,30 @@
           ) {
             const pushResult = window.messagesRef.push(msg);
             if (pushResult && typeof pushResult.key === "string") {
-              msg.id = pushResult.key;
+              const remoteId = pushResult.key;
+              if (remoteId && remoteId !== localId) {
+                // Update backend record so ids are coherent.
+                try {
+                  window.messagesRef.child(remoteId).update({ id: remoteId });
+                } catch (e) {
+                  console.warn("Failed to sync remote message ID", e);
+                }
+
+                // Keep local object in sync with remote IDs for rendering consistency.
+                messages = messages.map((m) =>
+                  m.id === localId ? { ...m, id: remoteId } : m,
+                );
+                msg.id = remoteId;
+                pendingMessageIds.add(remoteId);
+              }
             }
 
-            // Keep local state & render immediately, and remote event dedupe protects duplicates.
-            pendingMessageIds.add(msg.id);
             if (!messages.some((m) => m.id === msg.id)) {
               messages.push(msg);
-              saveMessages();
-              renderMsg(msg);
             }
+
+            saveMessages();
+            renderMsg(msg);
             return;
           }
         } catch (e) {
@@ -2227,7 +2301,6 @@
         }
 
         // Fallback when no messagesRef is available
-        pendingMessageIds.add(msg.id);
         if (!messages.some((m) => m.id === msg.id)) {
           messages.push(msg);
           saveMessages();
