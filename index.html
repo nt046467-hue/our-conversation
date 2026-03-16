@@ -1687,25 +1687,32 @@
                   firebase.initializeApp(firebaseConfig);
                   window.db = firebase.database();
                   window.messagesRef = db.ref("lovechat_messages");
-                window.db.ref(".info/connected").on("value", (conSnap) => {
-                  const connected = conSnap.val();
-                  if (!connected) {
-                    console.warn("firebase disconnected");
+                  window.db.ref(".info/connected").on("value", (conSnap) => {
+                    const connected = conSnap.val();
+                    if (!connected) {
+                      console.warn("firebase disconnected");
+                    }
+                  });
+                  attachMessagesListener();
+                  window.typingRef = db.ref("typing_status");
+                  subscribeDeletedMessages();
+                  initFirebaseMessaging();
+                  if (partnerUser) {
+                    subscribePartnerTyping();
+                    subscribePartnerPresence();
                   }
-                });
-                attachMessagesListener();
-                window.typingRef = db.ref("typing_status");
-                subscribeDeletedMessages();
-                initFirebaseMessaging();
-                if (partnerUser) {
-                  subscribePartnerTyping();
-                  subscribePartnerPresence();
+                } catch (e) {
+                  console.warn("Firebase init failed, using local storage", e);
+                  setPartnerStatus("offline 😴", "#f66");
+                  initLocalMessagesFallback();
                 }
-              } catch (e) {
-                console.warn("Firebase init failed, using local storage", e);
+              };
+              s3.onerror = () => {
+                console.warn("Firebase messaging script failed, using local storage");
                 setPartnerStatus("offline 😴", "#f66");
                 initLocalMessagesFallback();
-              }
+              };
+              document.head.appendChild(s3);
             };
             s2.onerror = () => {
               console.warn("Firebase DB script failed, using local storage");
