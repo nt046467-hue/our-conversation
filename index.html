@@ -616,7 +616,7 @@
         animation-delay: 0.15s;
       }
       .typing-dot:nth-child(3) {
-        animation-delay: 0.30s;
+        animation-delay: 0.3s;
       }
 
       .typing-text {
@@ -1369,6 +1369,7 @@
       let myCustomPhoto = null;
       let partnerCustomPhoto = null;
       let messages = [];
+      let deletedMessageIds = new Set();
       window.messagesRef = null;
       let remoteMessagesInitialized = false;
 
@@ -1554,7 +1555,6 @@
                   subscribePartnerTyping();
                   subscribePartnerPresence();
                 }
-
               } catch (e) {
                 console.warn("Firebase init failed, using local storage", e);
                 setPartnerStatus("offline 😴", "#f66");
@@ -1717,8 +1717,13 @@
           !window.messagesRef ||
           typeof window.messagesRef.child !== "function"
         ) {
+          loadDeletedMessageIds();
           const savedMsgs = localStorage.getItem("lovechat_msgs");
-          if (savedMsgs) messages = JSON.parse(savedMsgs);
+          if (savedMsgs) {
+            messages = JSON.parse(savedMsgs).filter(
+              (m) => !deletedMessageIds.has(m.id || ""),
+            );
+          }
         }
 
         const myPhoto = localStorage.getItem(
@@ -1992,16 +1997,34 @@
         });
       }
 
+      function loadDeletedMessageIds() {
+        try {
+          const saved = localStorage.getItem("lovechat_deleted_messages") || "[]";
+          JSON.parse(saved).forEach((id) => deletedMessageIds.add(id));
+        } catch (e) {
+          deletedMessageIds = new Set();
+        }
+      }
+
+      function saveDeletedMessageIds() {
+        localStorage.setItem(
+          "lovechat_deleted_messages",
+          JSON.stringify(Array.from(deletedMessageIds)),
+        );
+      }
+
       function saveMessages() {
         if (messages.length > 200) messages = messages.slice(-200);
-        messages = messages.map((m) => ({
-          ...m,
-          id:
-            m.id ||
-            (m.ts
-              ? `${m.ts}_${Math.random().toString(36).slice(2)}`
-              : `${Date.now()}_${Math.random().toString(36).slice(2)}`),
-        }));
+        messages = messages
+          .filter((m) => !deletedMessageIds.has(m.id || ""))
+          .map((m) => ({
+            ...m,
+            id:
+              m.id ||
+              (m.ts
+                ? `${m.ts}_${Math.random().toString(36).slice(2)}`
+                : `${Date.now()}_${Math.random().toString(36).slice(2)}`),
+          }));
         localStorage.setItem("lovechat_msgs", JSON.stringify(messages));
       }
 
@@ -2015,15 +2038,16 @@
             typeof window.messagesRef.push === "function"
           ) {
             const pushResult = window.messagesRef.push(msg);
-
-            // For Firebase, pushResult is a ref with generated key.
             if (pushResult && typeof pushResult.key === "string") {
               msg.id = pushResult.key;
-              // Do not push message locally; child_added listener will handle it.
-              return;
             }
 
-            // For local fallback, child_added listener handles render and local storage updates.
+            // Keep local state & render immediately, and remote event dedupe protects duplicates.
+            if (!messages.some((m) => m.id === msg.id)) {
+              messages.push(msg);
+              saveMessages();
+              renderMsg(msg);
+            }
             return;
           }
         } catch (e) {
@@ -2053,6 +2077,13 @@
         }
 
         const msgId = msg.id;
+        if (!msgId) {
+          showToast("Unable to resolve message ID");
+          return;
+        }
+
+        deletedMessageIds.add(msgId);
+        saveDeletedMessageIds();
 
         // Update remote store if possible. The listener will handle UI updates too.
         if (window.messagesRef && msgId) {
@@ -2072,7 +2103,6 @@
           }
         }
 
-        // Immediate local cleanup as fallback.
         messages = messages.filter((m) => m.id !== msgId);
         saveMessages();
         renderMessages();
