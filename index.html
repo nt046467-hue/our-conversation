@@ -1198,13 +1198,7 @@
           </div>
           <div>
             <div class="partner-name" id="partnerName">Karu</div>
-            <div class="partner-status">online ✨</div>
-            <div
-              id="connectionStatus"
-              style="font-size: 0.72rem; color: #c09ab0"
-            >
-              connecting...
-            </div>
+            <div class="partner-status" id="partnerStatus">offline 😴</div>
           </div>
         </div>
         <div class="header-heart">💕</div>
@@ -1367,11 +1361,50 @@
         }
       }
 
-      function setConnectionStatus(text, color) {
-        const el = document.getElementById("connectionStatus");
-        if (!el) return;
-        el.textContent = text;
-        if (color) el.style.color = color;
+      function setPartnerStatus(status, accentColor) {
+        const statusEl = document.getElementById("partnerStatus");
+        if (statusEl) {
+          statusEl.textContent = status;
+          statusEl.style.color = accentColor || "#c09ab0";
+        }
+      }
+
+      let typingTimeout = null;
+      function sendTypingState(isTyping) {
+        if (!currentUser || !window.typingRef) return;
+        window.typingRef.child(currentUser.key).set({ typing: isTyping });
+      }
+
+      function startTyping() {
+        if (!currentUser || !window.typingRef) return;
+        sendTypingState(true);
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          sendTypingState(false);
+        }, 1500);
+      }
+
+      function stopTyping() {
+        if (!currentUser || !window.typingRef) return;
+        sendTypingState(false);
+        clearTimeout(typingTimeout);
+      }
+
+      function setPartnerTyping(isTyping) {
+        const typingIndicator = document.getElementById("typingIndicator");
+        if (isTyping && currentUser) {
+          typingIndicator.classList.add("show");
+        } else {
+          typingIndicator.classList.remove("show");
+        }
+      }
+
+      function subscribePartnerTyping() {
+        if (!window.typingRef || !partnerUser) return;
+        window.typingRef.child(partnerUser.key).on("value", (snap) => {
+          const val = snap.val();
+          setPartnerTyping(val && val.typing);
+        });
       }
 
       function maybeSendNotification(text) {
@@ -1394,12 +1427,12 @@
         function initLocalMessagesFallback() {
           function LocalMessages(key) {
             this.key = key || "lovechat_msgs";
-            this.listeners = { child_added: [] };
+            this.listeners = { child_added: [], child_removed: [] };
             this._emitExisting = () => {
               const items = JSON.parse(localStorage.getItem(this.key) || "[]");
               items.forEach((item) =>
                 this.listeners.child_added.forEach((cb) =>
-                  cb({ val: () => item }),
+                  cb({ key: item.id, val: () => item }),
                 ),
               );
             };
@@ -1408,16 +1441,25 @@
               items.push(msg);
               localStorage.setItem(this.key, JSON.stringify(items.slice(-200)));
               this.listeners.child_added.forEach((cb) =>
-                cb({ val: () => msg }),
+                cb({ key: msg.id, val: () => msg }),
               );
+            };
+            this.remove = (id) => {
+              const items = JSON.parse(localStorage.getItem(this.key) || "[]");
+              const filtered = items.filter((item) => item.id !== id);
+              localStorage.setItem(this.key, JSON.stringify(filtered));
+              this.listeners.child_removed.forEach((cb) => cb({ key: id }));
             };
             this.on = (evt, cb) => {
               if (evt === "child_added") this.listeners.child_added.push(cb);
+              if (evt === "child_removed")
+                this.listeners.child_removed.push(cb);
             };
             setTimeout(() => this._emitExisting(), 0);
           }
 
           window.messagesRef = new LocalMessages("lovechat_msgs");
+          setPartnerStatus("offline 😴", "#f66");
           attachMessagesListener();
         }
 
@@ -1433,30 +1475,33 @@
                 firebase.initializeApp(firebaseConfig);
                 window.db = firebase.database();
                 window.messagesRef = db.ref("lovechat_messages");
+                window.db.ref(".info/connected").on("value", (conSnap) => {
+                  const connected = conSnap.val();
+                  if (connected) {
+                    setPartnerStatus("online ✨", "#2ecc71");
+                  } else {
+                    setPartnerStatus("offline 😴", "#f66");
+                  }
+                });
                 attachMessagesListener();
-                setConnectionStatus("Firebase Realtime connected", "#6af");
+                window.typingRef = db.ref("typing_status");
+                if (partnerUser) subscribePartnerTyping();
               } catch (e) {
                 console.warn("Firebase init failed, using local storage", e);
-                setConnectionStatus(
-                  "Firebase init failed, local fallback",
-                  "#f66",
-                );
+                setPartnerStatus("offline 😴", "#f66");
                 initLocalMessagesFallback();
               }
             };
             s2.onerror = () => {
               console.warn("Firebase DB script failed, using local storage");
-              setConnectionStatus("Firebase DB failed, local fallback", "#f66");
+              setPartnerStatus("offline 😴", "#f66");
               initLocalMessagesFallback();
             };
             document.head.appendChild(s2);
           };
           s1.onerror = () => {
             console.warn("Firebase app script failed, using local storage");
-            setConnectionStatus(
-              "Firebase scripts not loaded, local fallback",
-              "#f66",
-            );
+            setPartnerStatus("offline 😴", "#f66");
             initLocalMessagesFallback();
           };
           document.head.appendChild(s1);
@@ -1466,7 +1511,12 @@
           try {
             messagesRef.on("child_added", (snap) => {
               const data = typeof snap.val === "function" ? snap.val() : snap;
-              if (data && data.ts && messages.some((m) => m.ts === data.ts)) {
+              if (!data) return;
+              data.id =
+                data.id ||
+                snap.key ||
+                `${data.ts || Date.now()}_${Math.random().toString(36).slice(2)}`;
+              if (messages.some((m) => m.id === data.id)) {
                 return;
               }
               messages.push(data);
@@ -1492,6 +1542,14 @@
                 maybeSendNotification(data.content);
               }
             });
+
+            messagesRef.on("child_removed", (snap) => {
+              const removedId = snap.key;
+              if (!removedId) return;
+              messages = messages.filter((m) => m.id !== removedId);
+              saveMessages();
+              renderMessages();
+            });
           } catch (e) {
             console.warn("attachMessagesListener failed", e);
           }
@@ -1500,7 +1558,7 @@
         loadFirebaseScripts();
         setTimeout(() => {
           if (!window.messagesRef) {
-            setConnectionStatus("Realtime unavailable, local fallback", "#f66");
+            setPartnerStatus("offline 😴", "#f66");
             initLocalMessagesFallback();
           }
         }, 3000);
@@ -1559,6 +1617,8 @@
           partnerUser.avatar;
         document.getElementById("myAvatar").textContent = currentUser.avatar;
 
+        setPartnerStatus("online ✨", "#2ecc71");
+        subscribePartnerTyping();
         requestNotificationPermission();
 
         const savedMsgs = localStorage.getItem("lovechat_msgs");
@@ -1694,15 +1754,21 @@
         deleteEl.className = "msg-delete";
         deleteEl.textContent = "🗑";
         deleteEl.title = "Delete this message";
-        deleteEl.addEventListener("click", (event) => {
-          event.stopPropagation();
-          if (msg.ts != null) deleteMessage(msg.ts);
-        });
+
+        if (isMe) {
+          deleteEl.addEventListener("click", (event) => {
+            event.stopPropagation();
+            if (msg.ts != null) deleteMessage(msg.ts);
+          });
+        } else {
+          deleteEl.style.opacity = "0";
+          deleteEl.style.pointerEvents = "none";
+        }
 
         const controls = document.createElement("div");
         controls.className = "msg-controls";
         controls.appendChild(timeEl);
-        controls.appendChild(deleteEl);
+        if (isMe) controls.appendChild(deleteEl);
 
         wrap.appendChild(bubble);
         wrap.appendChild(controls);
@@ -1753,6 +1819,7 @@
         };
 
         pushMessage(msg);
+        stopTyping();
         maybeSendNotification(text);
         input.value = "";
         input.style.height = "";
@@ -1822,28 +1889,84 @@
 
       function saveMessages() {
         if (messages.length > 200) messages = messages.slice(-200);
+        messages = messages.map((m) => ({
+          ...m,
+          id:
+            m.id ||
+            (m.ts
+              ? `${m.ts}_${Math.random().toString(36).slice(2)}`
+              : `${Date.now()}_${Math.random().toString(36).slice(2)}`),
+        }));
         localStorage.setItem("lovechat_msgs", JSON.stringify(messages));
       }
 
       function pushMessage(msg) {
         msg.ts = msg.ts || Date.now();
+        msg.id = msg.id || `${msg.ts}_${Math.random().toString(36).slice(2)}`;
+
         try {
           if (
             window.messagesRef &&
             typeof window.messagesRef.push === "function"
           ) {
-            window.messagesRef.push(msg);
+            const pushResult = window.messagesRef.push(msg);
+
+            // For Firebase, pushResult is a ref with generated key.
+            if (pushResult && typeof pushResult.key === "string") {
+              msg.id = pushResult.key;
+              // Do not push message locally; child_added listener will handle it.
+              return;
+            }
+
+            // For local fallback, child_added listener handles render and local storage updates.
+            return;
           }
         } catch (e) {
           console.warn("pushMessage failed", e);
         }
-        messages.push(msg);
-        saveMessages();
-        renderMsg(msg);
+
+        // Fallback when no messagesRef is available
+        if (!messages.some((m) => m.id === msg.id)) {
+          messages.push(msg);
+          saveMessages();
+          renderMsg(msg);
+        }
       }
 
       function deleteMessage(ts) {
-        messages = messages.filter((m) => m.ts !== ts);
+        const msg = messages.find((m) => m.ts === ts || m.id === ts);
+        if (!msg) {
+          showToast("Message not found");
+          return;
+        }
+
+        if (!currentUser || msg.sender !== currentUser.key) {
+          showToast("You can only delete your own messages");
+          return;
+        }
+
+        const msgId = msg.id;
+
+        // Update remote store if possible. The listener will handle UI updates too.
+        if (window.messagesRef && msgId) {
+          try {
+            if (typeof window.messagesRef.child === "function") {
+              window.messagesRef
+                .child(msgId)
+                .remove()
+                .catch((e) => {
+                  console.warn("Remote delete failed", e);
+                });
+            } else if (typeof window.messagesRef.remove === "function") {
+              window.messagesRef.remove(msgId);
+            }
+          } catch (e) {
+            console.warn("deleteMessage remote remove failed", e);
+          }
+        }
+
+        // Immediate local cleanup as fallback.
+        messages = messages.filter((m) => m.id !== msgId);
         saveMessages();
         renderMessages();
         showToast("Message deleted");
@@ -1864,6 +1987,7 @@
       }
 
       function autoResize(el) {
+        startTyping();
         el.style.height = "";
         el.style.height = Math.min(el.scrollHeight, 100) + "px";
       }
