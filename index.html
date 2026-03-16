@@ -1612,10 +1612,11 @@
 
         document.getElementById("partnerName").textContent = partnerUser.name;
         document.getElementById("partnerAvatar").textContent =
-          partnerUser.avatar;
+          partnerUser.avatar || "🌸";
         document.getElementById("typingAvatar").textContent =
-          partnerUser.avatar;
-        document.getElementById("myAvatar").textContent = currentUser.avatar;
+          partnerUser.avatar || "🌸";
+        document.getElementById("myAvatar").textContent =
+          currentUser.avatar || "💙";
 
         setPartnerStatus("online ✨", "#2ecc71");
         subscribePartnerTyping();
@@ -1695,13 +1696,17 @@
 
         const avatarEl = document.createElement("div");
         avatarEl.className = "msg-avatar";
+
+        const myAvatarChar = (currentUser && currentUser.avatar) || "💙";
+        const theirAvatarChar = (partnerUser && partnerUser.avatar) || "🌸";
+
         if (isMe) {
           if (myCustomPhoto) {
             avatarEl.innerHTML = `<img src="${myCustomPhoto}" alt="avatar">`;
           } else {
             avatarEl.style.background =
               "linear-gradient(135deg, #ff6b9d, #c0396b)";
-            avatarEl.textContent = currentUser.avatar;
+            avatarEl.textContent = myAvatarChar;
           }
         } else {
           if (partnerCustomPhoto) {
@@ -1709,7 +1714,7 @@
           } else {
             avatarEl.style.background =
               "linear-gradient(135deg, #9b59b6, #6c3483)";
-            avatarEl.textContent = partnerUser.avatar;
+            avatarEl.textContent = theirAvatarChar;
           }
         }
 
