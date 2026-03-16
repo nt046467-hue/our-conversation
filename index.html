@@ -595,25 +595,35 @@
         background: var(--her-bubble);
         border-radius: 20px;
         border-bottom-left-radius: 4px;
-        padding: 10px 16px;
+        padding: 8px 12px;
         display: flex;
-        gap: 4px;
+        gap: 5px;
         align-items: center;
       }
 
       .typing-dot {
-        width: 6px;
-        height: 6px;
-        background: rgba(255, 255, 255, 0.6);
+        width: 7px;
+        height: 7px;
+        background: rgba(255, 255, 255, 0.75);
         border-radius: 50%;
-        animation: typingBounce 1.2s ease infinite;
+        animation: typingBounce 1s ease-in-out infinite;
       }
 
+      .typing-dot:nth-child(1) {
+        animation-delay: 0s;
+      }
       .typing-dot:nth-child(2) {
-        animation-delay: 0.2s;
+        animation-delay: 0.15s;
       }
       .typing-dot:nth-child(3) {
-        animation-delay: 0.4s;
+        animation-delay: 0.30s;
+      }
+
+      .typing-text {
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
       }
 
       @keyframes typingBounce {
@@ -1301,6 +1311,7 @@
       <div class="typing-indicator" id="typingIndicator">
         <div
           class="msg-avatar"
+          id="typingAvatarWrapper"
           style="background: linear-gradient(135deg, #9b59b6, #6c3483)"
         >
           <span id="typingAvatar">🌸</span>
@@ -1310,6 +1321,7 @@
           <div class="typing-dot"></div>
           <div class="typing-dot"></div>
         </div>
+        <div class="typing-text" id="typingText">typing...</div>
       </div>
 
       <div class="input-area">
@@ -1358,6 +1370,7 @@
       let partnerCustomPhoto = null;
       let messages = [];
       window.messagesRef = null;
+      let remoteMessagesInitialized = false;
 
       const firebaseConfig = {
         apiKey: "AIzaSyDfmozB3o0fS2INonOtliAzO4okLWE9Rsk",
@@ -1408,9 +1421,14 @@
 
       function setPartnerTyping(isTyping) {
         const typingIndicator = document.getElementById("typingIndicator");
-        if (!typingIndicator) return;
+        const typingText = document.getElementById("typingText");
+        const typingAvatar = document.getElementById("typingAvatar");
 
-        if (isTyping && currentUser) {
+        if (!typingIndicator || !typingText || !typingAvatar) return;
+
+        if (isTyping && partnerUser && partnerUser.name) {
+          typingText.textContent = `${partnerUser.name} is typing...`;
+          typingAvatar.textContent = partnerUser.avatar || "🌸";
           typingIndicator.classList.add("show");
         } else {
           typingIndicator.classList.remove("show");
@@ -1450,19 +1468,23 @@
         });
       }
 
-      function maybeSendNotification(text) {
-        if (document.hidden || !document.hasFocus()) {
-          // only show notifications when user is away from the tab
-          if (!partnerUser || !partnerUser.name) return;
-          if (
-            "Notification" in window &&
-            Notification.permission === "granted"
-          ) {
-            const body = text || "New message";
-            new Notification("💌 Message from " + partnerUser.name, {
-              body,
-            });
-          }
+      function maybeSendNotification(text, force = false) {
+        if (!partnerUser || !partnerUser.name) return;
+
+        if ("Notification" in window && Notification.permission === "granted") {
+          const body = text || "New message";
+          new Notification("💌 Message from " + partnerUser.name, {
+            body,
+          });
+          return;
+        }
+
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission().then((permission) => {
+            if (permission === "granted" && !force) {
+              maybeSendNotification(text, true);
+            }
+          });
         }
       }
 
@@ -1522,15 +1544,17 @@
                 window.messagesRef = db.ref("lovechat_messages");
                 window.db.ref(".info/connected").on("value", (conSnap) => {
                   const connected = conSnap.val();
-                  if (connected) {
-                    setPartnerStatus("online ✨", "#2ecc71");
-                  } else {
-                    setPartnerStatus("offline 😴", "#f66");
+                  if (!connected) {
+                    console.warn("firebase disconnected");
                   }
                 });
                 attachMessagesListener();
                 window.typingRef = db.ref("typing_status");
-                if (partnerUser) subscribePartnerTyping();
+                if (partnerUser) {
+                  subscribePartnerTyping();
+                  subscribePartnerPresence();
+                }
+
               } catch (e) {
                 console.warn("Firebase init failed, using local storage", e);
                 setPartnerStatus("offline 😴", "#f66");
@@ -1555,6 +1579,15 @@
         function attachMessagesListener() {
           try {
             messagesRef.on("child_added", (snap) => {
+              if (!remoteMessagesInitialized) {
+                remoteMessagesInitialized = true;
+                // If local messages were loaded first, replace with remote state to avoid stale duplicates.
+                if (messages.length > 0) {
+                  messages = [];
+                  renderMessages();
+                }
+              }
+
               const data = typeof snap.val === "function" ? snap.val() : snap;
               if (!data) return;
               data.id =
@@ -1596,6 +1629,7 @@
               );
               saveMessages();
               renderMessages();
+              showToast("Message deleted");
             });
           } catch (e) {
             console.warn("attachMessagesListener failed", e);
@@ -1677,8 +1711,15 @@
         subscribePartnerTyping();
         requestNotificationPermission();
 
-        const savedMsgs = localStorage.getItem("lovechat_msgs");
-        if (savedMsgs) messages = JSON.parse(savedMsgs);
+        // Only preload local messages when not connected to Firebase or before remote sync is ready.
+        if (
+          !window.db ||
+          !window.messagesRef ||
+          typeof window.messagesRef.child !== "function"
+        ) {
+          const savedMsgs = localStorage.getItem("lovechat_msgs");
+          if (savedMsgs) messages = JSON.parse(savedMsgs);
+        }
 
         const myPhoto = localStorage.getItem(
           "lovechat_photo_" + currentUser.key,
@@ -1885,7 +1926,6 @@
 
         pushMessage(msg);
         stopTyping();
-        maybeSendNotification(text);
         input.value = "";
         input.style.height = "";
 
