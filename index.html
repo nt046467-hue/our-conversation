@@ -1370,6 +1370,7 @@
       let partnerCustomPhoto = null;
       let messages = [];
       let deletedMessageIds = new Set();
+      let suppressRemoteDeleteToast = false;
       window.messagesRef = null;
       let remoteMessagesInitialized = false;
 
@@ -1483,21 +1484,37 @@
         });
       }
 
-      function maybeSendNotification(text, force = false) {
+      function getNotificationText(msg) {
+        if (!msg) return "New message";
+
+        if (typeof msg === "string") return msg;
+
+        if (msg.type === "text" && msg.content) return msg.content;
+        if (msg.type === "photo") return "📷 Photo received";
+        if (msg.type === "sticker") return "🎁 Sticker received";
+
+        if (msg.content) return String(msg.content);
+
+        return "New message";
+      }
+
+      function maybeSendNotification(msgOrText, force = false) {
         if (!partnerUser || !partnerUser.name) return;
 
-        if ("Notification" in window && Notification.permission === "granted") {
-          const body = text || "New message";
+        if (!("Notification" in window)) return;
+
+        if (Notification.permission === "granted") {
+          const body = getNotificationText(msgOrText);
           new Notification("💌 Message from " + partnerUser.name, {
             body,
           });
           return;
         }
 
-        if ("Notification" in window && Notification.permission === "default") {
+        if (Notification.permission === "default") {
           Notification.requestPermission().then((permission) => {
             if (permission === "granted" && !force) {
-              maybeSendNotification(text, true);
+              maybeSendNotification(msgOrText, true);
             }
           });
         }
@@ -1605,10 +1622,15 @@
 
               const data = typeof snap.val === "function" ? snap.val() : snap;
               if (!data) return;
-              data.id =
+              const dataId =
                 data.id ||
                 snap.key ||
                 `${data.ts || Date.now()}_${Math.random().toString(36).slice(2)}`;
+              if (deletedMessageIds.has(dataId)) {
+                // Skip messages that have been deleted already (soft delete list)
+                return;
+              }
+              data.id = dataId;
               if (messages.some((m) => m.id === data.id)) {
                 return;
               }
@@ -1628,11 +1650,9 @@
               if (
                 currentUser &&
                 data.sender &&
-                data.sender !== currentUser.key &&
-                data.content &&
-                typeof data.content === "string"
+                data.sender !== currentUser.key
               ) {
-                maybeSendNotification(data.content);
+                maybeSendNotification(data);
               }
             });
 
@@ -1644,6 +1664,10 @@
               );
               saveMessages();
               renderMessages();
+              if (suppressRemoteDeleteToast) {
+                suppressRemoteDeleteToast = false;
+                return;
+              }
               showToast("Message deleted");
             });
           } catch (e) {
@@ -2014,7 +2038,8 @@
 
       function loadDeletedMessageIds() {
         try {
-          const saved = localStorage.getItem("lovechat_deleted_messages") || "[]";
+          const saved =
+            localStorage.getItem("lovechat_deleted_messages") || "[]";
           JSON.parse(saved).forEach((id) => deletedMessageIds.add(id));
         } catch (e) {
           deletedMessageIds = new Set();
@@ -2100,7 +2125,15 @@
         deletedMessageIds.add(msgId);
         saveDeletedMessageIds();
 
-        // Update remote store if possible. The listener will handle UI updates too.
+        // Local UI updates immediately.
+        messages = messages.filter((m) => m.id !== msgId);
+        saveMessages();
+        renderMessages();
+        showToast("Message deleted");
+
+        suppressRemoteDeleteToast = true;
+
+        // Update remote store if possible. Keep the frontend synced with remote as soon as possible.
         if (window.db && msgId) {
           try {
             window.db.ref("deleted_messages/" + msgId).set(true);
@@ -2125,11 +2158,6 @@
             console.warn("deleteMessage remote remove failed", e);
           }
         }
-
-        messages = messages.filter((m) => m.id !== msgId);
-        saveMessages();
-        renderMessages();
-        showToast("Message deleted");
       }
 
       function scrollBottom() {
