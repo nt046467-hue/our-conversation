@@ -1,0 +1,38 @@
+# Git ignore patterns
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Node modules (if any scripts added later)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Local development
+.env
+.env.local
+*.log
+
+# Backup files
+*.bak
+*.backup
+*._backup
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# OS files
+desktop.ini
+
+# Don't commit large files
+*.zip
+*.rar
+*.tar.gz
