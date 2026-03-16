@@ -1386,9 +1386,66 @@
         measurementId: "G-68DNQK2R2P",
       };
 
+      function saveFcmToken(token) {
+        if (!window.db || !currentUser || !currentUser.key || !token) return;
+        try {
+          window.db
+            .ref("fcm_tokens/" + currentUser.key + "/" + token)
+            .set(true);
+        } catch (e) {
+          console.warn("Failed to save FCM token", e);
+        }
+      }
+
+      function initFirebaseMessaging() {
+        if (!window.db || !firebase?.messaging) return;
+        try {
+          const messaging = firebase.messaging();
+          window.messaging = messaging;
+
+          navigator.serviceWorker
+            .register("firebase-messaging-sw.js")
+            .then((reg) => {
+              messaging.useServiceWorker(reg);
+              if (Notification.permission === "granted") {
+                messaging
+                  .getToken({ vapidKey: undefined })
+                  .then((token) => {
+                    if (token) saveFcmToken(token);
+                  })
+                  .catch((e) => console.warn("FCM token get failed", e));
+              }
+            })
+            .catch((e) => console.warn("SW registration failed", e));
+
+          messaging.onMessage((payload) => {
+            const title =
+              payload.notification?.title || "💌 New message received";
+            const body =
+              payload.notification?.body || payload.data?.content || "";
+            if (Notification.permission === "granted") {
+              new Notification(title, { body });
+            }
+          });
+        } catch (e) {
+          console.warn("initFirebaseMessaging failed", e);
+        }
+      }
+
       function requestNotificationPermission() {
-        if ("Notification" in window && Notification.permission === "default") {
-          Notification.requestPermission();
+        if (!("Notification" in window)) return;
+
+        if (Notification.permission === "granted") {
+          initFirebaseMessaging();
+          return;
+        }
+
+        if (Notification.permission === "default") {
+          Notification.requestPermission().then((permission) => {
+            if (permission === "granted") {
+              initFirebaseMessaging();
+            }
+          });
         }
       }
 
