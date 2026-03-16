@@ -341,6 +341,7 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        border-radius: 50%;
       }
 
       .partner-name {
@@ -1449,17 +1450,18 @@
       }
 
       function maybeSendNotification(text) {
-        if (!document.hidden && document.hasFocus()) {
-          return;
-        }
-
-        if (!partnerUser || !partnerUser.name) return;
-
-        if ("Notification" in window && Notification.permission === "granted") {
-          const body = text || "New message";
-          new Notification("💌 Message from " + partnerUser.name, {
-            body,
-          });
+        if (document.hidden || !document.hasFocus()) {
+          // only show notifications when user is away from the tab
+          if (!partnerUser || !partnerUser.name) return;
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted"
+          ) {
+            const body = text || "New message";
+            new Notification("💌 Message from " + partnerUser.name, {
+              body,
+            });
+          }
         }
       }
 
