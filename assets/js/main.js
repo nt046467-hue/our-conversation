@@ -97,6 +97,7 @@ function initUI() {
   const messagesEl = document.getElementById("messages");
   const msgInput = document.getElementById("msgInput");
   const sendBtn = document.getElementById("sendBtn");
+  const profilesById = {};
 
   let currentUser = null;
 
@@ -150,6 +151,76 @@ function initUI() {
       return false;
     }
     return true;
+  }
+
+  function refreshProfileUI(user) {
+    if (!user) return;
+    profileAvatar.src = user.avatar;
+    profileName.textContent = user.name;
+    profileSub.textContent = "Ready to chat 💌";
+  }
+
+  function loadLocalProfile() {
+    try {
+      const profileKey = Object.keys(localStorage).find((k) =>
+        k.startsWith("profile_"),
+      );
+      if (!profileKey) return;
+      const profileData = localStorage.getItem(profileKey);
+      if (!profileData) return;
+      const user = JSON.parse(profileData);
+      if (!user || !user.uid) return;
+      currentUser = user;
+      refreshProfileUI(currentUser);
+      saveProfileRemote(currentUser);
+    } catch (e) {
+      console.warn("Failed to load local profile", e);
+    }
+  }
+
+  function saveProfileRemote(user) {
+    if (!window.db || !user || !user.uid) return;
+    try {
+      window.db.ref("profiles/" + user.uid).set({
+        uid: user.uid,
+        name: user.name,
+        avatar: user.avatar,
+      });
+    } catch (e) {
+      console.warn("Failed to write remote profile", e);
+    }
+  }
+
+  function syncRemoteProfiles() {
+    if (!window.db) return;
+    const profilesRef = window.db.ref("profiles");
+
+    const setProfile = (snap) => {
+      const profile = snap.val();
+      const uid = snap.key;
+      if (!uid || !profile) return;
+
+      profilesById[uid] = { ...profile, uid };
+
+      if (currentUser && currentUser.uid === uid) {
+        currentUser = { ...currentUser, ...profile };
+        refreshProfileUI(currentUser);
+      }
+    };
+
+    profilesRef.on("child_added", setProfile);
+    profilesRef.on("child_changed", setProfile);
+  }
+
+  function applyProfileToMessage(data) {
+    if (!data || !data.senderId) return data;
+    const profile = profilesById[data.senderId];
+    if (!profile) return data;
+    return {
+      ...data,
+      senderName: profile.name || data.senderName,
+      avatar: profile.avatar || data.avatar,
+    };
   }
 
   function populateAssets() {
@@ -270,6 +341,8 @@ function initUI() {
     } catch (e) {
       console.warn("Failed to persist profile", e);
     }
+
+    saveProfileRemote(currentUser);
   });
 
   function sendMessage() {
@@ -302,6 +375,7 @@ function initUI() {
   const renderedTs = new Set();
   function renderMessage(data) {
     try {
+      data = applyProfileToMessage(data);
       if (!data || !data.ts) return;
       if (renderedTs.has(data.ts)) return;
       renderedTs.add(data.ts);
@@ -356,6 +430,9 @@ function initUI() {
   } catch (e) {
     console.warn("messagesRef.on failed", e);
   }
+
+  loadLocalProfile();
+  syncRemoteProfiles();
 
   profileModal.addEventListener("click", (e) => {
     if (e.target === profileModal) {
