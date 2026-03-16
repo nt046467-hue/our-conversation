@@ -1456,6 +1456,20 @@
         });
       }
 
+      function subscribeDeletedMessages() {
+        if (!window.db) return;
+        const deletedRef = window.db.ref("deleted_messages");
+        deletedRef.on("child_added", (snap) => {
+          const removedId = snap.key;
+          if (!removedId) return;
+          deletedMessageIds.add(removedId);
+          messages = messages.filter((m) => m.id !== removedId);
+          saveDeletedMessageIds();
+          saveMessages();
+          renderMessages();
+        });
+      }
+
       function updateMyPresence() {
         if (!window.db || !currentUser) return;
         const meRef = window.db.ref("presence/" + currentUser.key);
@@ -1551,6 +1565,7 @@
                 });
                 attachMessagesListener();
                 window.typingRef = db.ref("typing_status");
+                subscribeDeletedMessages();
                 if (partnerUser) {
                   subscribePartnerTyping();
                   subscribePartnerPresence();
@@ -2086,6 +2101,14 @@
         saveDeletedMessageIds();
 
         // Update remote store if possible. The listener will handle UI updates too.
+        if (window.db && msgId) {
+          try {
+            window.db.ref("deleted_messages/" + msgId).set(true);
+          } catch (e) {
+            console.warn("Setting deleted message record failed", e);
+          }
+        }
+
         if (window.messagesRef && msgId) {
           try {
             if (typeof window.messagesRef.child === "function") {
