@@ -1371,6 +1371,8 @@
       let messages = [];
       let deletedMessageIds = new Set();
       let suppressRemoteDeleteToast = false;
+      let profilesByKey = {};
+      let pendingMessageIds = new Set();
       window.messagesRef = null;
       let remoteMessagesInitialized = false;
 
@@ -1398,7 +1400,7 @@
       }
 
       function initFirebaseMessaging() {
-        if (!window.db || !firebase?.messaging) return;
+        if (!window.db || !firebase || !firebase.messaging) return;
         try {
           const messaging = firebase.messaging();
           window.messaging = messaging;
@@ -1511,6 +1513,56 @@
             isOnline ? "online ✨" : "offline 😴",
             isOnline ? "#2ecc71" : "#f66",
           );
+        });
+      }
+
+      function saveCurrentProfile() {
+        if (!window.db || !currentUser || !currentUser.key) return;
+        try {
+          window.db.ref("profiles/" + currentUser.key).set({
+            name: currentUser.name,
+            avatar: currentUser.avatar,
+          });
+        } catch (e) {
+          console.warn("saveCurrentProfile failed", e);
+        }
+      }
+
+      function listenProfile(key, userRef = null) {
+        if (!window.db || !key) return;
+        const profileRef = window.db.ref("profiles/" + key);
+        profileRef.on("value", (snap) => {
+          const data = snap.val();
+          if (!data) return;
+          profilesByKey[key] = {
+            key,
+            name: data.name || (PASSWORDS[key] && PASSWORDS[key].name),
+            avatar: data.avatar || (PASSWORDS[key] && PASSWORDS[key].avatar),
+          };
+
+          if (currentUser && currentUser.key === key) {
+            currentUser = { ...currentUser, ...profilesByKey[key] };
+          }
+          if (partnerUser && partnerUser.key === key) {
+            partnerUser = { ...partnerUser, ...profilesByKey[key] };
+          }
+
+          const partnerNameEl = document.getElementById("partnerName");
+          const partnerAvatarEl = document.getElementById("partnerAvatar");
+          const myAvatarEl = document.getElementById("myAvatar");
+          const typingAvatarEl = document.getElementById("typingAvatar");
+
+          if (partnerUser && partnerUser.key === key) {
+            if (partnerNameEl) partnerNameEl.textContent = partnerUser.name;
+            if (partnerAvatarEl)
+              partnerAvatarEl.textContent = partnerUser.avatar || "🌸";
+            if (typingAvatarEl)
+              typingAvatarEl.textContent = partnerUser.avatar || "🌸";
+          }
+
+          if (currentUser && currentUser.key === key) {
+            if (myAvatarEl) myAvatarEl.textContent = currentUser.avatar || "💙";
+          }
         });
       }
 
@@ -1627,10 +1679,14 @@
             s2.src =
               "https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js";
             s2.onload = () => {
-              try {
-                firebase.initializeApp(firebaseConfig);
-                window.db = firebase.database();
-                window.messagesRef = db.ref("lovechat_messages");
+              const s3 = document.createElement("script");
+              s3.src =
+                "https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js";
+              s3.onload = () => {
+                try {
+                  firebase.initializeApp(firebaseConfig);
+                  window.db = firebase.database();
+                  window.messagesRef = db.ref("lovechat_messages");
                 window.db.ref(".info/connected").on("value", (conSnap) => {
                   const connected = conSnap.val();
                   if (!connected) {
@@ -1640,6 +1696,7 @@
                 attachMessagesListener();
                 window.typingRef = db.ref("typing_status");
                 subscribeDeletedMessages();
+                initFirebaseMessaging();
                 if (partnerUser) {
                   subscribePartnerTyping();
                   subscribePartnerPresence();
@@ -1685,6 +1742,10 @@
                 `${data.ts || Date.now()}_${Math.random().toString(36).slice(2)}`;
               if (deletedMessageIds.has(dataId)) {
                 // Skip messages that have been deleted already (soft delete list)
+                return;
+              }
+              if (pendingMessageIds.has(dataId)) {
+                pendingMessageIds.delete(dataId);
                 return;
               }
               data.id = dataId;
@@ -1803,6 +1864,9 @@
         if (window.db) {
           updateMyPresence();
           subscribePartnerPresence();
+          listenProfile(currentUser.key);
+          listenProfile(partnerUser.key);
+          saveCurrentProfile();
         }
         subscribePartnerTyping();
         requestNotificationPermission();
@@ -1896,11 +1960,14 @@
         row.className = `message-row ${isMe ? "me" : "her"}`;
         if (!animate) row.style.animation = "none";
 
+        const profile = profilesByKey[msg.sender] || (isMe ? currentUser : partnerUser);
         const avatarEl = document.createElement("div");
         avatarEl.className = "msg-avatar";
 
         const myAvatarChar = (currentUser && currentUser.avatar) || "💙";
         const theirAvatarChar = (partnerUser && partnerUser.avatar) || "🌸";
+        const senderAvatar =
+          (profile && profile.avatar) || (isMe ? myAvatarChar : theirAvatarChar);
 
         if (isMe) {
           if (myCustomPhoto) {
@@ -1908,7 +1975,7 @@
           } else {
             avatarEl.style.background =
               "linear-gradient(135deg, #ff6b9d, #c0396b)";
-            avatarEl.textContent = myAvatarChar;
+            avatarEl.textContent = senderAvatar;
           }
         } else {
           if (partnerCustomPhoto) {
@@ -1916,7 +1983,7 @@
           } else {
             avatarEl.style.background =
               "linear-gradient(135deg, #9b59b6, #6c3483)";
-            avatarEl.textContent = theirAvatarChar;
+            avatarEl.textContent = senderAvatar;
           }
         }
 
@@ -2140,6 +2207,7 @@
             }
 
             // Keep local state & render immediately, and remote event dedupe protects duplicates.
+            pendingMessageIds.add(msg.id);
             if (!messages.some((m) => m.id === msg.id)) {
               messages.push(msg);
               saveMessages();
@@ -2152,6 +2220,7 @@
         }
 
         // Fallback when no messagesRef is available
+        pendingMessageIds.add(msg.id);
         if (!messages.some((m) => m.id === msg.id)) {
           messages.push(msg);
           saveMessages();
