@@ -310,8 +310,20 @@
         width: 44px;
         height: 44px;
         border-radius: 50%;
-        overflow: hidden;
+        overflow: visible;
         flex-shrink: 0;
+      }
+
+      .online-dot {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        width: 12px;
+        height: 12px;
+        background: #2ecc71;
+        border: 2px solid var(--bg);
+        border-radius: 50%;
+        box-shadow: 0 0 8px rgba(46, 204, 113, 0.65);
       }
 
       .avatar-emoji {
@@ -329,17 +341,6 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-      }
-
-      .online-dot {
-        position: absolute;
-        bottom: 0;
-        right: 0;
-        width: 12px;
-        height: 12px;
-        background: #2ecc71;
-        border: 2px solid var(--bg);
-        border-radius: 50%;
       }
 
       .partner-name {
@@ -562,19 +563,23 @@
       /* Typing indicator */
       .typing-indicator {
         position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: calc(82px + var(--safe-bottom));
+        left: 18px;
+        bottom: calc(110px + var(--safe-bottom));
         z-index: 25;
+        max-width: 240px;
+        width: fit-content;
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: rgba(45, 16, 32, 0.85);
-        box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
+        padding: 8px 12px;
+        border-radius: 24px;
+        background: rgba(26, 10, 18, 0.9);
+        border: 1px solid rgba(255, 107, 157, 0.25);
+        box-shadow: 0 0 16px rgba(0, 0, 0, 0.35);
         opacity: 0;
-        transition: opacity 0.3s, transform 0.2s;
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease;
         pointer-events: none;
         transform: translateY(8px);
       }
@@ -582,10 +587,6 @@
       .typing-indicator.show {
         opacity: 1;
         transform: translateY(0);
-      }
-
-      .typing-indicator.show {
-        opacity: 1;
       }
 
       .typing-dots {
@@ -1422,20 +1423,42 @@
         });
       }
 
+      function subscribePartnerPresence() {
+        if (!window.db || !partnerUser) return;
+        const partnerPres = window.db.ref("presence/" + partnerUser.key);
+        partnerPres.on("value", (snap) => {
+          const isOnline = !!snap.val();
+          setPartnerStatus(
+            isOnline ? "online ✨" : "offline 😴",
+            isOnline ? "#2ecc71" : "#f66",
+          );
+        });
+      }
+
+      function updateMyPresence() {
+        if (!window.db || !currentUser) return;
+        const meRef = window.db.ref("presence/" + currentUser.key);
+        meRef.set(true);
+        meRef.onDisconnect().remove();
+        window.db.ref(".info/connected").on("value", (snap) => {
+          const connected = !!snap.val();
+          if (!connected) {
+            setPartnerStatus("offline 😴", "#f66");
+          }
+        });
+      }
+
       function maybeSendNotification(text) {
         if (!document.hidden && document.hasFocus()) {
           return;
         }
 
-        if (
-          "Notification" in window &&
-          Notification.permission === "granted" &&
-          /\b(love|darling|babe|sweet|dear|heart|forever|💕|❤️|💖)\b/i.test(
-            text,
-          )
-        ) {
+        if (!partnerUser || !partnerUser.name) return;
+
+        if ("Notification" in window && Notification.permission === "granted") {
+          const body = text || "New message";
           new Notification("💌 Message from " + partnerUser.name, {
-            body: text,
+            body,
           });
         }
       }
@@ -1642,6 +1665,10 @@
         if (myAvatarEl) myAvatarEl.textContent = currentUser.avatar || "💙";
 
         setPartnerStatus("online ✨", "#2ecc71");
+        if (window.db) {
+          updateMyPresence();
+          subscribePartnerPresence();
+        }
         subscribePartnerTyping();
         requestNotificationPermission();
 
@@ -1791,7 +1818,7 @@
         if (isMe) {
           deleteEl.addEventListener("click", (event) => {
             event.stopPropagation();
-            if (msg.ts != null) deleteMessage(msg.ts);
+            if (msg.id) deleteMessage(msg.id);
           });
         } else {
           deleteEl.style.opacity = "0";
@@ -1966,8 +1993,8 @@
         }
       }
 
-      function deleteMessage(ts) {
-        const msg = messages.find((m) => m.ts === ts || m.id === ts);
+      function deleteMessage(messageId) {
+        const msg = messages.find((m) => m.id === messageId);
         if (!msg) {
           showToast("Message not found");
           return;
