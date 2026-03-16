@@ -561,14 +561,27 @@
 
       /* Typing indicator */
       .typing-indicator {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: calc(82px + var(--safe-bottom));
+        z-index: 25;
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 4px 0;
-        margin: 0 12px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(45, 16, 32, 0.85);
+        box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
         opacity: 0;
-        transition: opacity 0.3s;
+        transition: opacity 0.3s, transform 0.2s;
         pointer-events: none;
+        transform: translateY(8px);
+      }
+
+      .typing-indicator.show {
+        opacity: 1;
+        transform: translateY(0);
       }
 
       .typing-indicator.show {
@@ -1392,6 +1405,8 @@
 
       function setPartnerTyping(isTyping) {
         const typingIndicator = document.getElementById("typingIndicator");
+        if (!typingIndicator) return;
+
         if (isTyping && currentUser) {
           typingIndicator.classList.add("show");
         } else {
@@ -1408,6 +1423,10 @@
       }
 
       function maybeSendNotification(text) {
+        if (!document.hidden && document.hasFocus()) {
+          return;
+        }
+
         if (
           "Notification" in window &&
           Notification.permission === "granted" &&
@@ -1610,13 +1629,17 @@
         const otherKey = key === "143" ? "1432" : "143";
         partnerUser = { ...PASSWORDS[otherKey], key: otherKey };
 
-        document.getElementById("partnerName").textContent = partnerUser.name;
-        document.getElementById("partnerAvatar").textContent =
-          partnerUser.avatar || "🌸";
-        document.getElementById("typingAvatar").textContent =
-          partnerUser.avatar || "🌸";
-        document.getElementById("myAvatar").textContent =
-          currentUser.avatar || "💙";
+        const partnerNameEl = document.getElementById("partnerName");
+        const partnerAvatarEl = document.getElementById("partnerAvatar");
+        const typingAvatarEl = document.getElementById("typingAvatar");
+        const myAvatarEl = document.getElementById("myAvatar");
+
+        if (partnerNameEl) partnerNameEl.textContent = partnerUser.name;
+        if (partnerAvatarEl)
+          partnerAvatarEl.textContent = partnerUser.avatar || "🌸";
+        if (typingAvatarEl)
+          typingAvatarEl.textContent = partnerUser.avatar || "🌸";
+        if (myAvatarEl) myAvatarEl.textContent = currentUser.avatar || "💙";
 
         setPartnerStatus("online ✨", "#2ecc71");
         subscribePartnerTyping();
@@ -1652,20 +1675,25 @@
 
       function setAvatarImg(id, src) {
         const el = document.getElementById(id);
-        el.innerHTML = `<img src="${src}" class="avatar" alt="avatar" />`;
+        if (el) {
+          el.innerHTML = `<img src="${src}" class="avatar" alt="avatar" />`;
+        }
       }
 
       function showError(msg) {
         const el = document.getElementById("loginError");
-        el.textContent = msg;
-        el.style.animation = "none";
-        setTimeout(() => (el.style.animation = "shake 0.4s ease"), 10);
-        setTimeout(() => (el.textContent = ""), 2500);
+        if (el) {
+          el.textContent = msg;
+          el.style.animation = "none";
+          setTimeout(() => (el.style.animation = "shake 0.4s ease"), 10);
+          setTimeout(() => (el.textContent = ""), 2500);
+        }
       }
 
       // ========= MESSAGES =========
       function renderMessages() {
         const area = document.getElementById("messagesArea");
+        if (!area) return;
         area.innerHTML = "";
 
         const div = document.createElement("div");
@@ -1999,12 +2027,18 @@
 
       // ========= TYPING =========
       function showTyping() {
-        document.getElementById("typingIndicator").classList.add("show");
+        const typingIndicator = document.getElementById("typingIndicator");
+        if (typingIndicator) {
+          typingIndicator.classList.add("show");
+        }
         scrollBottom();
       }
 
       function hideTyping() {
-        document.getElementById("typingIndicator").classList.remove("show");
+        const typingIndicator = document.getElementById("typingIndicator");
+        if (typingIndicator) {
+          typingIndicator.classList.remove("show");
+        }
       }
 
       // ========= PANEL =========
@@ -2193,23 +2227,29 @@
       }
 
       // Close panel when clicking messages
-      document.getElementById("messagesArea").addEventListener("click", () => {
-        if (panelOpen) togglePanel();
-      });
+      const messagesAreaEl = document.getElementById("messagesArea");
+      if (messagesAreaEl) {
+        messagesAreaEl.addEventListener("click", () => {
+          if (panelOpen) togglePanel();
+        });
+      }
 
       // Keep chat at bottom when keyboard or orientation changes
       window.addEventListener("resize", () => {
         const chat = document.getElementById("chat-screen");
-        if (chat.classList.contains("visible")) {
+        if (chat && chat.classList.contains("visible")) {
           setTimeout(scrollBottom, 130);
         }
       });
 
       // Hide panel when input is focused on small screens
-      document.getElementById("msg-input").addEventListener("focus", () => {
-        if (panelOpen) togglePanel();
-        setTimeout(scrollBottom, 120);
-      });
+      const msgInputEl = document.getElementById("msg-input");
+      if (msgInputEl) {
+        msgInputEl.addEventListener("focus", () => {
+          if (panelOpen) togglePanel();
+          setTimeout(scrollBottom, 120);
+        });
+      }
 
       initEmojis();
 
