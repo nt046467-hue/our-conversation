@@ -335,6 +335,7 @@
         font-size: 1.3rem;
         background: linear-gradient(135deg, #9b59b6, #6c3483);
         transition: opacity 0.2s;
+        border-radius: 50%;
       }
 
       .avatar {
@@ -1590,7 +1591,9 @@
             messagesRef.on("child_removed", (snap) => {
               const removedId = snap.key;
               if (!removedId) return;
-              messages = messages.filter((m) => m.id !== removedId);
+              messages = messages.filter(
+                (m) => m.id !== removedId && String(m.ts) !== String(removedId),
+              );
               saveMessages();
               renderMessages();
             });
@@ -1996,7 +1999,9 @@
       }
 
       function deleteMessage(messageId) {
-        const msg = messages.find((m) => m.id === messageId);
+        const msg = messages.find(
+          (m) => m.id === messageId || String(m.ts) === String(messageId),
+        );
         if (!msg) {
           showToast("Message not found");
           return;
