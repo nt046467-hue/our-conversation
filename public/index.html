@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Our Secret Space Chat</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="chat-app">
+      <header class="chat-header">
+        <div class="profile">
+          <div class="avatar">K</div>
+          <div>
+            <h1>Karu</h1>
+            <p id="karuStatus" class="status offline">offline</p>
+          </div>
+        </div>
+        <button id="notifyButton" class="notify-btn">Notify</button>
+      </header>
+
+      <main class="chat-main">
+        <div id="messageContainer" class="message-container"></div>
+        <div id="typingIndicator" class="typing-indicator" hidden>
+          Karu is typing...
+        </div>
+
+        <div class="emoji-grid" id="emojiGrid">
+          <button class="emoji-btn">😀</button>
+          <button class="emoji-btn">😂</button>
+          <button class="emoji-btn">😍</button>
+          <button class="emoji-btn">😎</button>
+          <button class="emoji-btn">😢</button>
+          <button class="emoji-btn">👍</button>
+          <button class="emoji-btn">🙏</button>
+          <button class="emoji-btn">🔥</button>
+        </div>
+
+        <form id="chatForm" class="chat-form" autocomplete="off">
+          <input
+            id="messageInput"
+            type="text"
+            placeholder="Type your message here..."
+          />
+          <button id="sendButton" type="submit" class="send-btn">Send</button>
+        </form>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+  </body>
+</html>
