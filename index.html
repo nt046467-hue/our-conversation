@@ -1386,11 +1386,11 @@
         messagingSenderId: "561504998058",
         appId: "1:561504998058:web:6f1819edd37adacdeaf6d3",
         measurementId: "G-68DNQK2R2P",
-      }; 
+      };
 
       // TODO: replace with your own VAPID key from Firebase Cloud Messaging settings.
       const FCM_VAPID_KEY =
-        "YOUR_WEB_PUSH_CERTIFICATE_KEY_HERE"; // Example: "BKKu..."
+        "BDi_wbpMDdQLc_HIQyemRqpTnujEWVHmlnJuvtkaiRKTjIaE85jXtpdQkSYHGfKdzfaflFnIcntWxXgI7AUisVE"; // Example: "BKKu..."
 
       function saveFcmToken(token) {
         if (!window.db || !currentUser || !currentUser.key || !token) return;
@@ -1410,7 +1410,7 @@
           window.messaging = messaging;
 
           navigator.serviceWorker
-            .register("firebase-messaging-sw.js")
+            .register("sw.js")
             .then((reg) => {
               messaging.useServiceWorker(reg);
               if (Notification.permission === "granted") {
@@ -1430,7 +1430,20 @@
                   .catch((e) => console.warn("FCM token get failed", e));
               }
             })
-            .catch((e) => console.warn("SW registration failed", e));
+            .catch((e) => {
+              console.warn(
+                "SW sw.js registration failed, falling back to firebase-messaging-sw.js",
+                e,
+              );
+              return navigator.serviceWorker.register(
+                "firebase-messaging-sw.js",
+              );
+            })
+            .then((reg) => {
+              if (reg && messaging) {
+                messaging.useServiceWorker(reg);
+              }
+            });
 
           messaging.onMessage((payload) => {
             const title =
@@ -1622,22 +1635,28 @@
       function maybeSendNotification(msgOrText, force = false) {
         if (!partnerUser || !partnerUser.name) return;
 
+        const messageText = getNotificationText(msgOrText);
+        const title = `💌 Message from ${partnerUser.name}`;
+
         if (!("Notification" in window)) {
-          showToast("New message from " + partnerUser.name);
+          showToast(`New message from ${partnerUser.name}`);
           return;
         }
 
         if (Notification.permission === "granted") {
-          const body = getNotificationText(msgOrText);
-          new Notification("💌 Message from " + partnerUser.name, {
-            body,
-          });
+          if (window.NotificationService) {
+            window.NotificationService.sendLocalNotificationForMessage(
+              msgOrText,
+              partnerUser.name,
+            );
+          } else {
+            new Notification(title, { body: messageText });
+          }
           return;
         }
 
-        // If denied, fallback to in-app toast and don’t keep asking.
         if (Notification.permission === "denied") {
-          showToast("New message from " + partnerUser.name);
+          showToast(`New message from ${partnerUser.name}`);
           return;
         }
 
@@ -1645,9 +1664,16 @@
           Notification.requestPermission().then((permission) => {
             if (permission === "granted") {
               initFirebaseMessaging();
-              maybeSendNotification(msgOrText, false);
+              if (window.NotificationService) {
+                window.NotificationService.sendLocalNotificationForMessage(
+                  msgOrText,
+                  partnerUser.name,
+                );
+              } else {
+                new Notification(title, { body: messageText });
+              }
             } else {
-              showToast("New message from " + partnerUser.name);
+              showToast(`New message from ${partnerUser.name}`);
             }
           });
         }
@@ -1732,7 +1758,9 @@
                 }
               };
               s3.onerror = () => {
-                console.warn("Firebase messaging script failed, using local storage");
+                console.warn(
+                  "Firebase messaging script failed, using local storage",
+                );
                 setPartnerStatus("offline 😴", "#f66");
                 initLocalMessagesFallback();
               };
@@ -1773,7 +1801,10 @@
                 `${data.ts || Date.now()}_${Math.random().toString(36).slice(2)}`;
               const clientId = data.clientId || dataId;
 
-              if (deletedMessageIds.has(dataId) || deletedMessageIds.has(clientId)) {
+              if (
+                deletedMessageIds.has(dataId) ||
+                deletedMessageIds.has(clientId)
+              ) {
                 // Skip messages that have been deleted already (soft delete list)
                 return;
               }
@@ -1926,6 +1957,15 @@
           saveCurrentProfile();
         }
         subscribePartnerTyping();
+        if (window.NotificationService && window.db && currentUser) {
+          window.NotificationService.bindAppInstance({
+            db: window.db,
+            userKey: currentUser.key,
+            username: currentUser.name,
+          });
+          window.NotificationService.requestPermission();
+        }
+
         requestNotificationPermission();
 
         // Only preload local messages when not connected to Firebase or before remote sync is ready.
@@ -2017,14 +2057,16 @@
         row.className = `message-row ${isMe ? "me" : "her"}`;
         if (!animate) row.style.animation = "none";
 
-        const profile = profilesByKey[msg.sender] || (isMe ? currentUser : partnerUser);
+        const profile =
+          profilesByKey[msg.sender] || (isMe ? currentUser : partnerUser);
         const avatarEl = document.createElement("div");
         avatarEl.className = "msg-avatar";
 
         const myAvatarChar = (currentUser && currentUser.avatar) || "💙";
         const theirAvatarChar = (partnerUser && partnerUser.avatar) || "🌸";
         const senderAvatar =
-          (profile && profile.avatar) || (isMe ? myAvatarChar : theirAvatarChar);
+          (profile && profile.avatar) ||
+          (isMe ? myAvatarChar : theirAvatarChar);
 
         if (isMe) {
           if (myCustomPhoto) {
@@ -2256,7 +2298,8 @@
 
       function pushMessage(msg) {
         msg.ts = msg.ts || Date.now();
-        const localId = msg.id || `${msg.ts}_${Math.random().toString(36).slice(2)}`;
+        const localId =
+          msg.id || `${msg.ts}_${Math.random().toString(36).slice(2)}`;
         msg.id = localId;
         msg.clientId = localId;
 
@@ -2683,5 +2726,6 @@
         }
       }
     </script>
+    <script src="notification.js"></script>
   </body>
 </html>
