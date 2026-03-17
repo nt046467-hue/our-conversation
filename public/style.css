@@ -177,6 +177,20 @@ body {
   gap: 10px;
 }
 
+.toast-visible {
+  position: fixed;
+  bottom: 98px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  background: rgba(33, 43, 91, 0.92);
+  color: #f2f5ff;
+  border: 1px solid rgba(143, 174, 255, 0.3);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 5px 20px rgba(8, 11, 28, 0.5);
+}
+
 #messageInput {
   flex: 1;
   border: 1px solid rgba(131, 154, 255, 0.26);

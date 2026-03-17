@@ -1,7 +1,8 @@
-const socket = io();
+const params = new URLSearchParams(window.location.search);
+const currentUser = params.get("name") || "You";
+const buddyUser = currentUser === "Karu" ? "You" : "Karu";
 
-const currentUser = "You";
-const buddyUser = "Karu";
+const socket = io({ query: { name: currentUser } });
 
 const messageContainer = document.getElementById("messageContainer");
 const chatForm = document.getElementById("chatForm");
@@ -72,15 +73,14 @@ socket.on("chat message", (messageData) => {
 
   appendMessage(text, sender, false);
 
-  if (
-    sender === buddyUser &&
-    document.hidden &&
-    Notification.permission === "granted"
-  ) {
-    new Notification("New message from Karu", {
+  if (sender === buddyUser && document.hidden && Notification.permission === 'granted') {
+    new Notification('New message from Karu', {
       body: text,
-      icon: "icon.png",
+      icon: 'icon.png',
     });
+  } else if (sender === buddyUser && document.hidden) {
+    // fallback message for non-supported notification environments
+    showInPageToast('New message from Karu: ' + text);
   }
 });
 
@@ -108,28 +108,60 @@ socket.on("typing", (typingData) => {
   }, 400);
 });
 
-function requestNotificationPermission() {
-  if (!("Notification" in window)) {
-    alert("This browser does not support desktop notifications.");
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service workers are not supported in this browser.');
     return;
   }
 
-  Notification.requestPermission().then((permission) => {
-    if (permission === "granted") {
-      alert(
-        "Notifications enabled. You will receive alerts when Karu messages you while the tab is hidden.",
-      );
-    } else {
-      alert("Notifications are disabled.");
-    }
-  });
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    console.log('Service Worker registered:', registration);
+  } catch (err) {
+    console.error('Service Worker registration failed:', err);
+  }
 }
 
-notifyButton.addEventListener("click", requestNotificationPermission);
+function isNotificationSupported() {
+  return 'Notification' in window;
+}
 
-document.addEventListener("visibilitychange", () => {
+async function requestNotificationPermission() {
+  if (!isNotificationSupported()) {
+    alert('This browser does not support desktop notifications.');
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      alert('Notifications enabled. You will receive alerts when Karu messages you while the tab is hidden.');
+    } else {
+      alert('Notifications are disabled.');
+    }
+  } catch (err) {
+    console.error('Notification permission request error:', err);
+  }
+}
+
+function showInPageToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'toast-visible';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 2800);
+}
+
+notifyButton.addEventListener('click', requestNotificationPermission);
+
+document.addEventListener('visibilitychange', () => {
   if (!document.hidden && isBuddyTyping) {
     typingIndicator.hidden = true;
     isBuddyTyping = false;
   }
 });
+
+registerServiceWorker();

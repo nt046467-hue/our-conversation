@@ -16,12 +16,13 @@ app.use(express.static(path.join(__dirname, "public")));
 const connectedUsers = {};
 
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-  connectedUsers[socket.id] = "Karu";
+  const username = socket.handshake.query.name || `User-${socket.id.slice(0, 5)}`;
+  console.log("User connected:", socket.id, "as", username);
+  connectedUsers[socket.id] = username;
 
   // Broadcast user status online to others
   socket.broadcast.emit("user status", {
-    user: "Karu",
+    user: username,
     status: "online",
   });
 
@@ -35,11 +36,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    console.log("User disconnected:", socket.id, "as", username);
     delete connectedUsers[socket.id];
 
     socket.broadcast.emit("user status", {
-      user: "Karu",
+      user: username,
       status: "offline",
     });
   });
